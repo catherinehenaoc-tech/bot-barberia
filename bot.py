@@ -3,6 +3,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, fil
 from datetime import datetime
 
 import sqlite3
+import csv
 
 TOKEN = "8791007606:AAEneEd5S2s7fM4frvND2lYgCuON514iAsc"
 
@@ -80,10 +81,28 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje += f"💰 TOTAL GENERAL: ${total_general:,.0f}"
 
     await update.message.reply_text(mensaje)
+async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cursor.execute("SELECT servicio, barbero, valor, fecha FROM registros")
+    datos = cursor.fetchall()
 
+    if not datos:
+        await update.message.reply_text("No hay datos para exportar")
+        return
+
+    filename = "reporte.csv"
+
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["servicio", "barbero", "valor", "fecha"])
+        writer.writerows(datos)
+
+    with open(filename, "rb") as f:
+        await update.message.reply_document(document=f)
+        
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guardar))
 app.add_handler(CommandHandler("resumen", resumen))
+app.add_handler(CommandHandler("exportar", exportar))
 
 app.run_polling()
