@@ -108,26 +108,21 @@ def obtener_datos(fecha_inicio, fecha_fin=None):
 async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
-        await update.message.reply_text(
-            "❌ Usa: /resumen hoy | ayer | semana | YYYY-MM-DD"
-        )
+        await update.message.reply_text("❌ Usa: /resumen hoy | ayer | semana | YYYY-MM-DD")
         return
 
     filtro = context.args[0].lower()
-
     hoy = datetime.now()
 
     # ----------------------------
-    # DEFINIR FECHA O RANGO
+    # FECHAS
     # ----------------------------
 
     if filtro == "hoy":
-        fecha_inicio = hoy.strftime("%Y-%m-%d")
-        fecha_fin = None
+        fecha_inicio = fecha_fin = hoy.strftime("%Y-%m-%d")
 
     elif filtro == "ayer":
-        fecha_inicio = (hoy - timedelta(days=1)).strftime("%Y-%m-%d")
-        fecha_fin = None
+        fecha_inicio = fecha_fin = (hoy - timedelta(days=1)).strftime("%Y-%m-%d")
 
     elif filtro == "semana":
         inicio = hoy - timedelta(days=hoy.weekday())
@@ -135,23 +130,83 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fecha_fin = hoy.strftime("%Y-%m-%d")
 
     else:
-        # asume fecha exacta
-        fecha_inicio = filtro
-        fecha_fin = None
+        fecha_inicio = fecha_fin = filtro
 
-   resultados = obtener_datos(fecha_inicio, fecha_fin)
+    # ----------------------------
+    # 1. POR BARBERO + SERVICIO
+    # ----------------------------
 
-    if not resultados:
-        await update.message.reply_text("No hay registros")
-        return
+    cursor.execute("""
+        SELECT barbero, servicio, SUM(valor)
+        FROM registros
+        WHERE fecha BETWEEN ? AND ?
+        GROUP BY barbero, servicio
+        ORDER BY barbero
+    """, (fecha_inicio, fecha_fin))
 
-    mensaje = construir_mensaje(resultados, f"📊 Resumen {filtro}")
+    por_barbero = cursor.fetchall()
+
+    # ----------------------------
+    # 2. GLOBAL POR SERVICIO
+    # ----------------------------
+
+    cursor.execute("""
+        SELECT servicio, SUM(valor)
+        FROM registros
+        WHERE fecha BETWEEN ? AND ?
+        GROUP BY servicio
+    """, (fecha_inicio, fecha_fin))
+
+    por_servicio = cursor.fetchall()
+
+    # ----------------------------
+    # CONSTRUCCIÓN MENSAJE
+    # ----------------------------
+
+    mensaje = f"📊 Resumen {fecha_inicio}\n\n"
+
+    total_general = 0
+    barbero_actual = None
+    total_barbero = 0
+
+    # ----------------------------
+    # DETALLE POR BARBERO
+    # ----------------------------
+
+    for barbero, servicio, total in por_barbero:
+
+        if barbero != barbero_actual:
+            if barbero_actual is not None:
+                mensaje += f"Total barbero: ${total_barbero:,.0f}\n\n"
+
+            mensaje += f"💈 {barbero}\n"
+            barbero_actual = barbero
+            total_barbero = 0
+
+        mensaje += f"{servicio}: ${total:,.0f}\n"
+
+        total_barbero += total
+        total_general += total
+
+    # cerrar último barbero
+    mensaje += f"Total barbero: ${total_barbero:,.0f}\n\n"
+
+    # ----------------------------
+    # TOTAL GLOBAL POR SERVICIO
+    # ----------------------------
+
+    mensaje += "📌 TOTAL POR SERVICIO\n"
+
+    for servicio, total in por_servicio:
+        mensaje += f"{servicio}: ${total:,.0f}\n"
+
+    # ----------------------------
+    # 🔴 TOTAL GENERAL (ÚLTIMA LÍNEA)
+    # ----------------------------
+
+    mensaje += f"\n💰 TOTAL GENERAL: ${total_general:,.0f}"
 
     await update.message.reply_text(mensaje)
-
-
-
-
 
 
 
