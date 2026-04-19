@@ -40,24 +40,23 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Usa: servicio, valor")
 
-def obtener_datos(filtro_fecha=None):
-    if filtro_fecha:
-        cursor.execute("""
-            SELECT barbero, servicio, COUNT(*), SUM(valor)
-            FROM registros
-            WHERE fecha = ?
-            GROUP BY barbero, servicio
-            ORDER BY barbero
-        """, (filtro_fecha,))
-    else:
-        cursor.execute("""
-            SELECT barbero, servicio, COUNT(*), SUM(valor)
-            FROM registros
-            GROUP BY barbero, servicio
-            ORDER BY barbero
-        """)
+async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cursor.execute("SELECT servicio, barbero, valor, fecha FROM registros")
+    datos = cursor.fetchall()
 
-    return cursor.fetchall()
+    if not datos:
+        await update.message.reply_text("No hay datos para exportar")
+        return
+
+    filename = "reporte.csv"
+
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["servicio", "barbero", "valor", "fecha"])
+        writer.writerows(datos)
+
+    with open(filename, "rb") as f:
+        await update.message.reply_document(document=f)
 
 def construir_mensaje(resultados, titulo):
     mensaje = f"{titulo}\n\n"
@@ -86,67 +85,69 @@ def construir_mensaje(resultados, titulo):
 
     return mensaje
 
-def obtener_datos(fecha=None):
-    if fecha:
+def obtener_datos(fecha_inicio, fecha_fin=None):
+    if fecha_fin:
+        cursor.execute("""
+            SELECT barbero, servicio, COUNT(*), SUM(valor)
+            FROM registros
+            WHERE fecha BETWEEN ? AND ?
+            GROUP BY barbero, servicio
+            ORDER BY barbero
+        """, (fecha_inicio, fecha_fin))
+    else:
         cursor.execute("""
             SELECT barbero, servicio, COUNT(*), SUM(valor)
             FROM registros
             WHERE fecha = ?
             GROUP BY barbero, servicio
             ORDER BY barbero
-        """, (fecha,))
-    else:
-        cursor.execute("""
-            SELECT barbero, servicio, COUNT(*), SUM(valor)
-            FROM registros
-            GROUP BY barbero, servicio
-            ORDER BY barbero
-        """)
+        """, (fecha_inicio,))
 
     return cursor.fetchall()
 
-async def resumen_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    hoy = datetime.now().strftime("%Y-%m-%d")
+async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    resultados = obtener_datos(hoy)
-
-    if not resultados:
-        await update.message.reply_text("No hay registros hoy")
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Usa: /resumen hoy | ayer | semana | YYYY-MM-DD"
+        )
         return
 
-    mensaje = construir_mensaje(resultados, "📊 Resumen de hoy")
-    await update.message.reply_text(mensaje)
+    filtro = context.args[0].lower()
 
-async def resumen_ayer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ayer = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    resultados = obtener_datos(ayer)
-
-    if not resultados:
-        await update.message.reply_text("No hay registros ayer")
-        return
-
-    mensaje = construir_mensaje(resultados, "📊 Resumen de ayer")
-    await update.message.reply_text(mensaje)
-
-async def resumen_semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hoy = datetime.now()
-    inicio = hoy - timedelta(days=hoy.weekday())
 
-    cursor.execute("""
-        SELECT barbero, servicio, COUNT(*), SUM(valor)
-        FROM registros
-        WHERE fecha >= ?
-        GROUP BY barbero, servicio
-        ORDER BY barbero
-    """, (inicio.strftime("%Y-%m-%d"),))
+    # ----------------------------
+    # DEFINIR FECHA O RANGO
+    # ----------------------------
 
-    resultados = cursor.fetchall()
+    if filtro == "hoy":
+        fecha_inicio = hoy.strftime("%Y-%m-%d")
+        fecha_fin = None
 
-    mensaje = construir_mensaje(resultados, "📊 Resumen de la semana")
+    elif filtro == "ayer":
+        fecha_inicio = (hoy - timedelta(days=1)).strftime("%Y-%m-%d")
+        fecha_fin = None
+
+    elif filtro == "semana":
+        inicio = hoy - timedelta(days=hoy.weekday())
+        fecha_inicio = inicio.strftime("%Y-%m-%d")
+        fecha_fin = hoy.strftime("%Y-%m-%d")
+
+    else:
+        # asume fecha exacta
+        fecha_inicio = filtro
+        fecha_fin = None
+
+   resultados = obtener_datos(fecha_inicio, fecha_fin)
+
+    if not resultados:
+        await update.message.reply_text("No hay registros")
+        return
+
+    mensaje = construir_mensaje(resultados, f"📊 Resumen {filtro}")
 
     await update.message.reply_text(mensaje)
-
 
 
 
@@ -158,9 +159,7 @@ async def resumen_semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guardar))
-app.add_handler(CommandHandler("resumen_hoy", resumen_hoy))
-app.add_handler(CommandHandler("resumen_ayer", resumen_ayer))
-app.add_handler(CommandHandler("resumen_semana", resumen_semana))
+app.add_handler(CommandHandler("resumen", resumen))
 app.add_handler(CommandHandler("exportar", exportar))
 
 app.run_polling()
