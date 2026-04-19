@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import sqlite3
 import csv
@@ -25,9 +25,9 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         servicio, valor = [x.strip() for x in update.message.text.split(",")]
         valor = float(valor)
 
-        usuario = (update.effective_user.username or str(update.effective_user.id)).lower()
+        usuario = str(update.effective_user.id)
 
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+       fecha = datetime.now().strftime("%Y-%m-%d")
 
         cursor.execute(
             "INSERT INTO registros (servicio, barbero, valor, fecha) VALUES (?, ?, ?, ?)",
@@ -40,24 +40,27 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Usa: servicio, valor")
 
-async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    hoy = datetime.now().strftime("%Y-%m-%d")
+def obtener_datos(filtro_fecha=None):
+    if filtro_fecha:
+        cursor.execute("""
+            SELECT barbero, servicio, COUNT(*), SUM(valor)
+            FROM registros
+            WHERE fecha = ?
+            GROUP BY barbero, servicio
+            ORDER BY barbero
+        """, (filtro_fecha,))
+    else:
+        cursor.execute("""
+            SELECT barbero, servicio, COUNT(*), SUM(valor)
+            FROM registros
+            GROUP BY barbero, servicio
+            ORDER BY barbero
+        """)
 
-    cursor.execute("""
-        SELECT barbero, servicio, COUNT(*), SUM(valor)
-        FROM registros
-        WHERE fecha LIKE ?
-        GROUP BY barbero, servicio
-        ORDER BY barbero, servicio
-    """, (f"{hoy}%",))
+    return cursor.fetchall()
 
-    resultados = cursor.fetchall()
-
-    if not resultados:
-        await update.message.reply_text("No hay registros hoy")
-        return
-
-    mensaje = "📊 Resumen del día\n\n"
+def construir_mensaje(resultados, titulo):
+    mensaje = f"{titulo}\n\n"
 
     total_general = 0
     ultimo_barbero = None
@@ -65,7 +68,6 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for barbero, servicio, cantidad, total in resultados:
 
-        # cambio de barbero
         if barbero != ultimo_barbero:
             if ultimo_barbero is not None:
                 mensaje += f"Total: ${total_barbero:,.0f}\n\n"
@@ -79,16 +81,86 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_barbero += total
         total_general += total
 
-    # cerrar último barbero
     mensaje += f"Total: ${total_barbero:,.0f}\n\n"
     mensaje += f"💰 TOTAL GENERAL: ${total_general:,.0f}"
 
+    return mensaje
+
+def obtener_datos(fecha=None):
+    if fecha:
+        cursor.execute("""
+            SELECT barbero, servicio, COUNT(*), SUM(valor)
+            FROM registros
+            WHERE fecha = ?
+            GROUP BY barbero, servicio
+            ORDER BY barbero
+        """, (fecha,))
+    else:
+        cursor.execute("""
+            SELECT barbero, servicio, COUNT(*), SUM(valor)
+            FROM registros
+            GROUP BY barbero, servicio
+            ORDER BY barbero
+        """)
+
+    return cursor.fetchall()
+
+async def resumen_hoy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    hoy = datetime.now().strftime("%Y-%m-%d")
+
+    resultados = obtener_datos(hoy)
+
+    if not resultados:
+        await update.message.reply_text("No hay registros hoy")
+        return
+
+    mensaje = construir_mensaje(resultados, "📊 Resumen de hoy")
     await update.message.reply_text(mensaje)
+
+async def resumen_ayer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ayer = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    resultados = obtener_datos(ayer)
+
+    if not resultados:
+        await update.message.reply_text("No hay registros ayer")
+        return
+
+    mensaje = construir_mensaje(resultados, "📊 Resumen de ayer")
+    await update.message.reply_text(mensaje)
+
+async def resumen_semana(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    hoy = datetime.now()
+    inicio = hoy - timedelta(days=hoy.weekday())
+
+    cursor.execute("""
+        SELECT barbero, servicio, COUNT(*), SUM(valor)
+        FROM registros
+        WHERE fecha >= ?
+        GROUP BY barbero, servicio
+        ORDER BY barbero
+    """, (inicio.strftime("%Y-%m-%d"),))
+
+    resultados = cursor.fetchall()
+
+    mensaje = construir_mensaje(resultados, "📊 Resumen de la semana")
+
+    await update.message.reply_text(mensaje)
+
+
+
+
+
+
+
+
         
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guardar))
-app.add_handler(CommandHandler("resumen", resumen))
+app.add_handler(CommandHandler("resumen_hoy", resumen_hoy))
+app.add_handler(CommandHandler("resumen_ayer", resumen_ayer))
+app.add_handler(CommandHandler("resumen_semana", resumen_semana))
 app.add_handler(CommandHandler("exportar", exportar))
 
 app.run_polling()
