@@ -24,7 +24,7 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         servicio, valor = [x.strip() for x in update.message.text.split(",")]
         valor = float(valor)
 
-        usuario = update.effective_user.username or str(update.effective_user.id)
+        usuario = (update.effective_user.username or str(update.effective_user.id)).lower()
 
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -40,10 +40,46 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Usa: servicio, valor")
 
 async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cursor.execute("SELECT SUM(valor) FROM registros")
-    total = cursor.fetchone()[0] or 0
+    hoy = datetime.now().strftime("%Y-%m-%d")
 
-    await update.message.reply_text(f"💰 Total: ${total:,.0f}")
+    cursor.execute("""
+        SELECT barbero, servicio, COUNT(*), SUM(valor)
+        FROM registros
+        WHERE fecha LIKE ?
+        GROUP BY barbero, servicio
+        ORDER BY barbero
+    """, (f"{hoy}%",))
+
+    resultados = cursor.fetchall()
+
+    if not resultados:
+        await update.message.reply_text("No hay registros hoy")
+        return
+
+    mensaje = "📊 Resumen del día\n\n"
+
+    barbero_actual = None
+    total_barbero = 0
+    total_general = 0
+
+    for barbero, servicio, cantidad, total in resultados:
+        if barbero != barbero_actual:
+            if barbero_actual is not None:
+                mensaje += f"Total: ${total_barbero:,.0f}\n\n"
+
+            mensaje += f"💈 {barbero}\n"
+            barbero_actual = barbero
+            total_barbero = 0
+
+        mensaje += f"{servicio}: {cantidad} - ${total:,.0f}\n"
+        total_barbero += total
+        total_general += total
+
+    # último barbero
+    mensaje += f"Total: ${total_barbero:,.0f}\n\n"
+    mensaje += f"💰 TOTAL GENERAL: ${total_general:,.0f}"
+
+    await update.message.reply_text(mensaje)
 
 app = ApplicationBuilder().token(TOKEN).build()
 
