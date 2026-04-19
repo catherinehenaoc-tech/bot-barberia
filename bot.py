@@ -48,7 +48,7 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM registros
         WHERE fecha LIKE ?
         GROUP BY barbero, servicio
-        ORDER BY barbero
+        ORDER BY barbero, servicio
     """, (f"{hoy}%",))
 
     resultados = cursor.fetchall()
@@ -59,45 +59,31 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     mensaje = "📊 Resumen del día\n\n"
 
-    barbero_actual = None
-    total_barbero = 0
     total_general = 0
+    ultimo_barbero = None
+    total_barbero = 0
 
     for barbero, servicio, cantidad, total in resultados:
-        if barbero != barbero_actual:
-            if barbero_actual is not None:
+
+        # cambio de barbero
+        if barbero != ultimo_barbero:
+            if ultimo_barbero is not None:
                 mensaje += f"Total: ${total_barbero:,.0f}\n\n"
 
             mensaje += f"💈 {barbero}\n"
-            barbero_actual = barbero
+            ultimo_barbero = barbero
             total_barbero = 0
 
         mensaje += f"{servicio}: {cantidad} - ${total:,.0f}\n"
+
         total_barbero += total
         total_general += total
 
-    # último barbero
+    # cerrar último barbero
     mensaje += f"Total: ${total_barbero:,.0f}\n\n"
     mensaje += f"💰 TOTAL GENERAL: ${total_general:,.0f}"
 
     await update.message.reply_text(mensaje)
-async def exportar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cursor.execute("SELECT servicio, barbero, valor, fecha FROM registros")
-    datos = cursor.fetchall()
-
-    if not datos:
-        await update.message.reply_text("No hay datos para exportar")
-        return
-
-    filename = "reporte.csv"
-
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["servicio", "barbero", "valor", "fecha"])
-        writer.writerows(datos)
-
-    with open(filename, "rb") as f:
-        await update.message.reply_document(document=f)
         
 app = ApplicationBuilder().token(TOKEN).build()
 
