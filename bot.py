@@ -26,8 +26,7 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         valor = float(valor)
 
         usuario = str(update.effective_user.id)
-
-       fecha = datetime.now().strftime("%Y-%m-%d")
+        fecha = datetime.now().strftime("%Y-%m-%d")
 
         cursor.execute(
             "INSERT INTO registros (servicio, barbero, valor, fecha) VALUES (?, ?, ?, ?)",
