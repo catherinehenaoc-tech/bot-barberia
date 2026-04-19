@@ -4,7 +4,7 @@ from datetime import datetime
 
 import sqlite3
 
-TOKEN = "TU_TOKEN"
+TOKEN = "8791007606:AAGooWHcNhdg0aftx4g6LR1PutVDp8jJtiA"
 
 conn = sqlite3.connect("data.db", check_same_thread=False)
 cursor = conn.cursor()
