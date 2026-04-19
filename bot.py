@@ -24,8 +24,9 @@ async def guardar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         servicio, valor = [x.strip() for x in update.message.text.split(",")]
         valor = float(valor)
+        
+        usuario = (update.effective_user.username or update.effective_user.first_name).lower()
 
-        usuario = str(update.effective_user.id)
         fecha = datetime.now().strftime("%Y-%m-%d")
 
         cursor.execute(
